@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Tenant model - Multi-tenant yapısı
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // ltd, as, sahis, etc.
+  taxNumber   String   @unique
+  taxOffice   String
+  
+  // Contact info
+  address     String
+  city        String
+  district    String
+  phone       String
+  website     String?
+  
+  // Business info
+  industryType        String
+  employeeCount       String
+  businessDescription String?
+  
+  // Status
+  status      TenantStatus @default(DEMO)
+  demoEndDate DateTime?
+  
+  // Relations
+  users         User[]
+  departments   Department[]
+  roles         Role[]
+  subscriptions TenantSubscription[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("tenants")
+}
+
+enum TenantStatus {
+  DEMO
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+// User model
+model User {
+  id       String  @id @default(cuid())
+  name     String
+  email    String  @unique
+  phone    String?
+  password String
+  
+  // Tenant relation
+  tenantId     String
+  tenant       Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Role & Department
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  roleId       String?
+  role         Role? @relation(fields: [roleId], references: [id])
+  
+  // Security
+  lastLogin            DateTime?
+  failedLoginAttempts  Int       @default(0)
+  accountLockedUntil   DateTime?
+  emailVerified        Boolean   @default(false)
+  emailVerificationToken String?
+  
+  // Status
+  isActive Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  
+  @@map("users")
+}
+
+// Department model
+model Department {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  name        String
+  description String?
+  isCustom    Boolean  @default(false)
+  
+  // Relations
+  users User[]
+  roles Role[]
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([tenantId, name])
+  @@map("departments")
+}
+
+// Role model
+model Role {
+  id           String     @id @default(cuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  
+  name        String
+  permissions Json // Module permissions as JSON
+  isCustom    Boolean @default(false)
+  
+  // Relations
+  users User[]
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([tenantId, departmentId, name])
+  @@map("roles")
+}
+
+// Subscription Plans
+model SubscriptionPlan {
+  id                   String @id @default(cuid())
+  name                 String
+  monthlyPricePerUser  Float
+  yearlyPricePerUser   Float?
+  maxUsers             Int?
+  features             Json
+  isActive             Boolean @default(true)
+  
+  // Relations
+  subscriptions TenantSubscription[]
+  
+  createdAt DateTime @default(now())
+  
+  @@map("subscription_plans")
+}
+
+// Tenant Subscriptions
+model TenantSubscription {
+  id                   String           @id @default(cuid())
+  tenantId             String
+  tenant               Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId               String
+  plan                 SubscriptionPlan @relation(fields: [planId], references: [id])
+  
+  status               SubscriptionStatus @default(DEMO)
+  userCount            Int
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  demoEndDate          DateTime?
+  cancelAtPeriodEnd    Boolean          @default(false)
+  
+  // Stripe integration
+  stripeSubscriptionId String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("tenant_subscriptions")
+}
+
+enum SubscriptionStatus {
+  DEMO
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  SUSPENDED
+}
+
+// Payment records
+model Payment {
+  id                     String @id @default(cuid())
+  tenantId               String
+  subscriptionId         String?
+  
+  stripePaymentIntentId  String?
+  amount                 Float
+  currency               String @default("TRY")
+  status                 PaymentStatus
+  paymentMethod          String?
+  invoiceUrl             String?
+  
+  createdAt DateTime @default(now())
+  
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+// Audit Log
+model AuditLog {
+  id       String @id @default(cuid())
+  tenantId String
+  userId   String?
+  
+  action    String
+  details   Json?
+  ipAddress String?
+  
+  createdAt DateTime @default(now())
+  
+  @@map("audit_logs")
+}
